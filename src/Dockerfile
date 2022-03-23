@@ -6,6 +6,4 @@ RUN apk add --no-cache \
 
 COPY run-ser2net.sh /
 
-RUN chmod +x /run-ser2net.sh
-
-ENTRYPOINT ["/run-ser2net.sh"]
+ENTRYPOINT ["sh", "/run-ser2net.sh"]
