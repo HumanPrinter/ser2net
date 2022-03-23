@@ -27,7 +27,7 @@ stages:
     - task: CacheBeta@0
       displayName: Cache pre-commit files to improve speed of subsequent runs
       inputs:
-        key: pre-commit | . .pre-commit-config.yaml | "$(PY)"
+        key: pre-commit | .pre-commit-config.yaml | "$(PY)"
         path: $(PRE_COMMIT_HOME)
 
     - task: Bash@3
