@@ -5,32 +5,73 @@ trigger:
     include:
     - master
     - hotfix/*
-    - feature/*  
+    - feature/*
 
 pool:
   vmImage: 'ubuntu-latest'
 
-variables:
-  shortBuildName: $[replace(variables['Build.BuildNumber'], '-master', '')]
-  ${{ if eq(variables['Build.SourceBranchName'], 'master') }}:
-    tags: -t humanprinter.azurecr.io/ser2net:latest -t humanprinter.azurecr.io/ser2net:$(shortBuildName)
-  ${{ if ne(variables['Build.SourceBranchName'], 'master') }}:
-    tags: -t humanprinter.azurecr.io/ser2net:$(Build.BuildNumber)
+stages:
+- stage: QualityCheck
+  displayName: Execute quality checks on the source code
+  jobs:
+  - job: Perform_Quality_Check
+    displayName: Execute quality checks on the source code
+    variables:
+      PRE_COMMIT_HOME: $(Pipeline.Workspace)/pre-commit-cache
 
-steps:
-- task: Docker@2
-  displayName: Docker Login
-  inputs:
-    containerRegistry: 'acr_humanprinter'
-    command: 'login'
-- task: CmdLine@2
-  displayName: Build
-  inputs:
-    script: |
-      docker run --privileged --rm tonistiigi/binfmt --install arm64,arm
-      docker run --privileged --rm tonistiigi/binfmt
-      docker buildx create --use
-      docker buildx build --platform linux/arm64,linux/arm/v7,linux/arm/v6 \
-        $(tags) \
-        --push \
-        ./src/
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '3.10'
+
+    - task: CacheBeta@0
+      displayName: Cache pre-commit files to improve speed of subsequent runs
+      inputs:
+        key: pre-commit | .pre-commit-config.yaml | "$(PY)"
+        path: $(PRE_COMMIT_HOME)
+
+    - task: Bash@3
+      displayName: Install the quality check tooling
+      inputs:
+        targetType: inline
+        script: |
+          ./scripts/install-requirements.sh
+
+    - task: Bash@3
+      displayName: Run pre-commit
+      inputs:
+        targetType: inline
+        script: |
+          pre-commit run --all-files --show-diff-on-failure
+        failOnStderr: true
+
+- stage: Build
+  displayName: Build and push the Docker image
+  variables:
+    shortBuildName: $[replace(variables['Build.BuildNumber'], '-master', '')]
+    ${{ if eq(variables['Build.SourceBranchName'], 'master') }}:
+      tags: -t humanprinter.azurecr.io/ser2net:latest -t humanprinter.azurecr.io/ser2net:$(shortBuildName)
+    ${{ if ne(variables['Build.SourceBranchName'], 'master') }}:
+      tags: -t humanprinter.azurecr.io/ser2net:$(Build.BuildNumber)
+
+  dependsOn: QualityCheck
+  jobs:
+  - job: Build_And_Push_Docker_Image
+    displayName: Build and push the Docker image
+    steps:
+    - task: Docker@2
+      displayName: Docker Login
+      inputs:
+        containerRegistry: 'acr_humanprinter'
+        command: 'login'
+    - task: CmdLine@2
+      displayName: Build
+      inputs:
+        script: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64,arm
+          docker run --privileged --rm tonistiigi/binfmt
+          docker buildx create --use
+          docker buildx build --platform linux/arm64,linux/arm/v7,linux/arm/v6 \
+            $(tags) \
+            --push \
+            ./src/
